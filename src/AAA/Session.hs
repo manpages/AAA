@@ -71,8 +71,8 @@ invalidate delta sessions = do
 -- session (`aaaSResp_sessions`), and the updated Session storage (`aaaSResp_sessions`).
 --
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
--- this library using a `Right Error` value (wrapped in IO in this particular case).
-tick :: Salt -> PC -> Req -> IOE Resp Error
+-- this library using a `Left Error` value (wrapped in IO in this particular case).
+tick :: Salt -> PC -> Req -> IOE Error Resp
 tick z f r@Req { aaaSReq_account    = account
                , aaaSReq_auth       = Left secret
                , aaaSReq_session    = session
@@ -80,8 +80,8 @@ tick z f r@Req { aaaSReq_account    = account
                , aaaSReq_sessions   = sessions
                , aaaSReq_accounts   = accounts }
   | secretMatches z secret account accounts = initializeSession f r
-  | True                                    = return $ Right $ Error ( EIncorrectPassword
-                                                                     , "Incorrect password")
+  | True                                    = return $ Left $ Error ( EIncorrectPassword
+                                                                    , "Incorrect password")
 tick _ f r@Req { aaaSReq_account    = account
                , aaaSReq_auth       = Right token
                , aaaSReq_session    = session
@@ -91,13 +91,13 @@ tick _ f r@Req { aaaSReq_account    = account
   | sessionExists (account, session, permission) sessions =
       bumpToken f r
   | True = 
-      return $ Right $ Error ( ESessionNotFound
-                             , T.unwords [ "User", (tshow account)
-                                         , "attempted to keep a non-existing"
-                                         , (tshow permission), "session alive at"
-                                         , (tshow session) ] )
+      return $ Left $ Error ( ESessionNotFound
+                            , T.unwords [ "User", (tshow account)
+                                        , "attempted to keep a non-existing"
+                                        , (tshow permission), "session alive at"
+                                        , (tshow session) ] )
 
-bumpToken :: PC -> Req -> IOE Resp Error
+bumpToken :: PC -> Req -> IOE Error Resp
 bumpToken f r@Req { aaaSReq_account    = account
                   , aaaSReq_auth       = Right token
                   , aaaSReq_session    = session
@@ -107,7 +107,7 @@ bumpToken f r@Req { aaaSReq_account    = account
   | f permission account accounts =
       bumpTokenDo r
   | True =
-      return $ Right $ Error bumpPermErr
+      return $ Left $ Error bumpPermErr
   where
     bumpPermErr = ( EPermissionDenied
                   , T.unwords [ "Permission denied for", (tshow account)
@@ -116,7 +116,7 @@ bumpToken f r@Req { aaaSReq_account    = account
                               , "Possibly, administrator changed the permissions"
                               , "in the middle of a session." ] )
 
-bumpTokenDo :: Req -> IOE Resp Error
+bumpTokenDo :: Req -> IOE Error Resp
 bumpTokenDo r@Req { aaaSReq_account    = account
                   , aaaSReq_auth       = Right token
                   , aaaSReq_session    = session
@@ -127,7 +127,7 @@ bumpTokenDo r@Req { aaaSReq_account    = account
   noise     <- randBytes 32
   let tok    = (C.hash . BS.append noise) (getToken $ aaaSess_token s0)
   let s1     = mkSession (Token tok) tau
-  return $ Left $ response s1
+  return $ Right $ response s1
   where
     mkSession t q = Session { aaaSess_name            = session
                             , aaaSess_permission      = permission
@@ -140,7 +140,7 @@ bumpTokenDo r@Req { aaaSReq_account    = account
                       , aaaSResp_session  = s
                       , aaaSResp_sessions = sessions1 s }
 
-initializeSession :: PC -> Req -> IOE Resp Error
+initializeSession :: PC -> Req -> IOE Error Resp
 initializeSession f r@Req { aaaSReq_account    = account
                           , aaaSReq_auth       = Left secret
                           , aaaSReq_session    = session
@@ -148,7 +148,7 @@ initializeSession f r@Req { aaaSReq_account    = account
                           , aaaSReq_sessions   = sessions
                           , aaaSReq_accounts   = accounts }
   | sessionExists (account, session, permission) sessions =
-      (return . Right . Error) initErr
+      return $ Left $ Error initErr
   | True =
       initializeSessionDo f r
   where
@@ -157,7 +157,7 @@ initializeSession f r@Req { aaaSReq_account    = account
                           , "for class of actions", (tshow permission)
                           , "already exists. MITM / replay attempt possible." ] )
 
-initializeSessionDo :: PC -> Req -> IOE Resp Error
+initializeSessionDo :: PC -> Req -> IOE Error Resp
 initializeSessionDo f r@Req { aaaSReq_account    = account
                             , aaaSReq_auth       = Left secret
                             , aaaSReq_session    = session
@@ -167,7 +167,7 @@ initializeSessionDo f r@Req { aaaSReq_account    = account
   | f permission account accounts =
       initializeSessionFinally r
   | True =
-      return $ Right $ Error permError
+      return $ Left $ Error permError
   where
     permError = ( EPermissionDenied
                 , T.unwords [ "Permission denied for", (tshow account)
@@ -175,7 +175,7 @@ initializeSessionDo f r@Req { aaaSReq_account    = account
                             , "at", (tshow session)
                             , ". Endpoint enumeration attack possible." ] )
 
-initializeSessionFinally :: Req -> IOE Resp Error
+initializeSessionFinally :: Req -> IOE Error Resp
 initializeSessionFinally r@Req { aaaSReq_account    = account
                                , aaaSReq_auth       = Left secret
                                , aaaSReq_session    = session
@@ -186,7 +186,7 @@ initializeSessionFinally r@Req { aaaSReq_account    = account
   noise    <- randBytes 32
   let tok   = (C.hash . BS.append noise . getSalted) (aaaAct_salted acc)
   let s1    = mkSession (Token tok) tau
-  return $ Left $ response s1
+  return $ Right $ response s1
   where
     mkSession t q = Session { aaaSess_name       = session
                             , aaaSess_permission = permission
