@@ -2,6 +2,7 @@
 
 -- | Functions to update session table and token chains.
 module AAA.Session ( tick
+                   , invalidate
                    , sessionExists
 
                    , Auth(..)
@@ -42,6 +43,15 @@ data Resp = Resp { aaaSResp_lastSeen :: Maybe POSIXTime
 sessionExists :: (Id Account, Id Session, Id Permission) -> Sessions -> Bool
 sessionExists k kvs = isJust $ M.lookup k kvs
 
+-- | Invalidate all sessions with last tick older than given DiffTime
+-- as POSIXTime (eg. `5 :: POSIXTime -- 5s`).
+invalidate :: POSIXTime -> Sessions -> IO Sessions
+invalidate delta sessions = do
+  tau <- getPOSIXTime
+  return $ M.filter (f tau) sessions
+  where
+    f t session = (t - (aaaSess_time session)) < delta 
+
 -- | Along every request to perform action of class `Id Permission`, either
 -- Left Secret (if the session is about to get initialized), or Right Token
 -- (if session for that device / client, class of actions, and user is already
@@ -63,7 +73,6 @@ sessionExists k kvs = isJust $ M.lookup k kvs
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
 -- this library using a `Right Error` value (wrapped in IO in this particular case).
 tick :: Salt -> PC -> Req -> IOE Resp Error
---tick z f (x, Left p) s b@(ss, xs)
 tick z f r@Req { aaaSReq_account    = account
                , aaaSReq_auth       = Left secret
                , aaaSReq_session    = session
