@@ -73,21 +73,63 @@ tick z f r@Req { aaaSReq_account    = account
   | secretMatches z secret account accounts = initializeSession f r
   | True                                    = return $ Right $ Error ( EIncorrectPassword
                                                                      , "Incorrect password")
-{-- tick z f r@Req { aaaSReq_account    = account
+tick _ f r@Req { aaaSReq_account    = account
                , aaaSReq_auth       = Right token
                , aaaSReq_session    = session
                , aaaSReq_permission = permission
                , aaaSReq_sessions   = sessions
                , aaaSReq_accounts   = accounts }
   | sessionExists (account, session, permission) sessions =
-      bumpToken ???
+      bumpToken f r
   | True = 
       return $ Right $ Error ( ESessionNotFound
                              , T.unwords [ "User", (tshow account)
                                          , "attempted to keep a non-existing"
-                                         , (show p) "session alive at"
-                                         , (show s) ] )
---}
+                                         , (tshow permission), "session alive at"
+                                         , (tshow session) ] )
+
+bumpToken :: PC -> Req -> IOE Resp Error
+bumpToken f r@Req { aaaSReq_account    = account
+                  , aaaSReq_auth       = Right token
+                  , aaaSReq_session    = session
+                  , aaaSReq_permission = permission
+                  , aaaSReq_sessions   = sessions
+                  , aaaSReq_accounts   = accounts }
+  | f permission account accounts =
+      bumpTokenDo r
+  | True =
+      return $ Right $ Error bumpPermErr
+  where
+    bumpPermErr = ( EPermissionDenied
+                  , T.unwords [ "Permission denied for", (tshow account)
+                              , "while bumping token in session", (tshow session)
+                              , "for action class", (tshow permission)
+                              , "Possibly, administrator changed the permissions"
+                              , "in the middle of a session." ] )
+
+bumpTokenDo :: Req -> IOE Resp Error
+bumpTokenDo r@Req { aaaSReq_account    = account
+                  , aaaSReq_auth       = Right token
+                  , aaaSReq_session    = session
+                  , aaaSReq_permission = permission
+                  , aaaSReq_sessions   = sessions
+                  , aaaSReq_accounts   = accounts } = do
+  tau       <- getPOSIXTime
+  noise     <- randBytes 32
+  let tok    = (C.hash . BS.append noise) (getToken $ aaaSess_token s0)
+  let s1     = mkSession (Token tok) tau
+  return $ Left $ response s1
+  where
+    mkSession t q = Session { aaaSess_name            = session
+                            , aaaSess_permission      = permission
+                            , aaaSess_account         = account
+                            , aaaSess_time            = q
+                            , aaaSess_token           = t }
+    s0 = fromJust $ M.lookup (account, session, permission) sessions
+    sessions1 s = M.update (const $ Just s) (account, session, permission) sessions
+    response s = Resp { aaaSResp_lastSeen = Just $ aaaSess_time s0
+                      , aaaSResp_session  = s
+                      , aaaSResp_sessions = sessions1 s }
 
 initializeSession :: PC -> Req -> IOE Resp Error
 initializeSession f r@Req { aaaSReq_account    = account
@@ -116,7 +158,7 @@ initializeSessionDo f r@Req { aaaSReq_account    = account
   | f permission account accounts =
       initializeSessionFinally r
   | True =
-      (return . Right . Error) permError
+      return $ Right $ Error permError
   where
     permError = ( EPermissionDenied
                 , T.unwords [ "Permission denied for", (tshow account)
@@ -134,7 +176,7 @@ initializeSessionFinally r@Req { aaaSReq_account    = account
   tau      <- getPOSIXTime 
   noise    <- randBytes 32
   let tok   = (C.hash . BS.append noise . getSalted) (aaaAct_salted acc)
-  let s1    = mkSession tok tau
+  let s1    = mkSession (Token tok) tau
   return $ Left $ response s1
   where
     mkSession t q = Session { aaaSess_name       = session

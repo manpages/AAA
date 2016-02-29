@@ -50,7 +50,7 @@ newtype Secret = Secret { getSecret :: T.Text } deriving (Eq, Read, Show)
 -- | Type which captures tokens. Once session for some class of actions is
 -- established, every request shall use last received Token and every response
 -- shall provide the new Token to be used for this session.
-newtype Token  = Token { getToken :: T.Text }   deriving (Eq, Read, Show)
+newtype Token  = Token { getToken :: Hash }   deriving (Eq, Read, Show)
 
 -- | Type which captures the concept of a hash being salted.
 newtype Salted = Salted { getSalted :: Hash }   deriving (Eq, Read, Show)
@@ -98,7 +98,7 @@ data Variadic = VI Int
 data Session = Session { aaaSess_name       :: Id Session
                        , aaaSess_permission :: Id Permission
                        , aaaSess_account    :: Id Account
-                       , aaaSess_token      :: Hash
+                       , aaaSess_token      :: Token
                        , aaaSess_time       :: POSIXTime }
 
 -- | Id Session → Session mapping.
@@ -111,6 +111,7 @@ newtype Error = Error { getError :: (ErrorCode, T.Text) } deriving (Eq, Read, Sh
 data ErrorCode = EAccountAlreadyRegistered
                | EAccountNotFound
                | ESessionExists
+               | ESessionNotFound
                | EPermissionDenied
                | EIncorrectPassword
   deriving (Eq, Read, Show)
