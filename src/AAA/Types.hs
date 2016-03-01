@@ -24,8 +24,8 @@ module AAA.Types ( Accounts    (..)
 import           Data.ByteString ( ByteString() )
 import           Data.Time.Clock.POSIX ( POSIXTime() )
 
-import qualified Data.Map  as M
-import qualified Data.Text as T
+import qualified Data.Map      as M
+import qualified Data.Text     as T
 
 -- | Hash is just a ByteString. Everything Hash-related is found in
 -- AAA.Crypto. TODO: Create a type-family based library for different
@@ -88,7 +88,9 @@ data Variadic = VI Int
               | VT T.Text
               | VR Rational
               | VV [Variadic]
-  deriving (Eq, Read, Show)
+              | VM (M.Map Variadic Variadic)
+              | VU ()
+  deriving (Eq, Ord, Read, Show)
 
 -- | Record type which stores information about a given session
 -- in one client, performing class of actions optionally specified
@@ -110,8 +112,9 @@ newtype Error = Error { getError :: (ErrorCode, T.Text) } deriving (Eq, Read, Sh
 -- | Error codes as a union type
 data ErrorCode = EAccountAlreadyRegistered
                | EAccountNotFound
+               | EIncorrectPassword
+               | EPermissionDenied
                | ESessionExists
                | ESessionNotFound
-               | EPermissionDenied
-               | EIncorrectPassword
+               | ETokenMismatch
   deriving (Eq, Read, Show)

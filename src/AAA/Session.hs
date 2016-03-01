@@ -34,9 +34,11 @@ data Req = Req { aaaSReq_account     :: Id Account
                , aaaSReq_accounts    :: Accounts
                , aaaSReq_sessions    :: Sessions }
 
-data Resp = Resp { aaaSResp_lastSeen :: Maybe POSIXTime
-                 , aaaSResp_session  :: Session
-                 , aaaSResp_sessions :: Sessions }
+data Resp a = Resp { aaaSResp_lastSeen :: Maybe POSIXTime
+                   , aaaSResp_time     :: POSIXTime
+                   , aaaSResp_session  :: Session
+                   , aaaSResp_sessions :: Sessions
+                   , aaaSResp_value    :: a }
 
 -- | Gets a session key (Id Account, Id Session, Id Permission),
 -- and Sessions; and gives back information if such session exists.
@@ -72,14 +74,14 @@ invalidate delta sessions = do
 --
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
 -- this library using a `Left Error` value (wrapped in IO in this particular case).
-tick :: Salt -> PC -> Req -> IOE Error Resp
+tick :: Salt -> PC -> Req -> (() -> a) -> IOE Error (Resp a)
 tick z f r@Req { aaaSReq_account    = account
                , aaaSReq_auth       = Left secret
                , aaaSReq_session    = session
                , aaaSReq_permission = permission
                , aaaSReq_sessions   = sessions
-               , aaaSReq_accounts   = accounts }
-  | secretMatches z secret account accounts = initializeSession f r
+               , aaaSReq_accounts   = accounts } g
+  | secretMatches z secret account accounts = initializeSession f r g
   | True                                    = return $ Left $ Error ( EIncorrectPassword
                                                                     , "Incorrect password")
 tick _ f r@Req { aaaSReq_account    = account
@@ -87,9 +89,9 @@ tick _ f r@Req { aaaSReq_account    = account
                , aaaSReq_session    = session
                , aaaSReq_permission = permission
                , aaaSReq_sessions   = sessions
-               , aaaSReq_accounts   = accounts }
+               , aaaSReq_accounts   = accounts } g
   | sessionExists (account, session, permission) sessions =
-      bumpToken f r
+      bumpToken f r g
   | True = 
       return $ Left $ Error ( ESessionNotFound
                             , T.unwords [ "User", (tshow account)
@@ -97,15 +99,33 @@ tick _ f r@Req { aaaSReq_account    = account
                                         , (tshow permission), "session alive at"
                                         , (tshow session) ] )
 
-bumpToken :: PC -> Req -> IOE Error Resp
+
+bumpToken :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
 bumpToken f r@Req { aaaSReq_account    = account
                   , aaaSReq_auth       = Right token
                   , aaaSReq_session    = session
                   , aaaSReq_permission = permission
                   , aaaSReq_sessions   = sessions
-                  , aaaSReq_accounts   = accounts }
+                  , aaaSReq_accounts   = accounts } g
+  | token == aaaSess_token theSession =
+      bumpTokenDo f r g
+  | True =
+      return $ Left $ Error ( ETokenMismatch, T.unwords [ "User", (tshow account)
+                                                        , "supplied an incorrect token"
+                                                        , "for action class", (tshow permission)
+                                                        , "at", (tshow session) ] )
+  where
+    theSession = fromJust $ M.lookup (account, session, permission) sessions
+
+bumpTokenDo :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
+bumpTokenDo f r@Req { aaaSReq_account    = account
+                    , aaaSReq_auth       = Right token
+                    , aaaSReq_session    = session
+                    , aaaSReq_permission = permission
+                    , aaaSReq_sessions   = sessions
+                    , aaaSReq_accounts   = accounts } g
   | f permission account accounts =
-      bumpTokenDo r
+      bumpTokenFinally r g
   | True =
       return $ Left $ Error bumpPermErr
   where
@@ -116,18 +136,18 @@ bumpToken f r@Req { aaaSReq_account    = account
                               , "Possibly, administrator changed the permissions"
                               , "in the middle of a session." ] )
 
-bumpTokenDo :: Req -> IOE Error Resp
-bumpTokenDo r@Req { aaaSReq_account    = account
-                  , aaaSReq_auth       = Right token
-                  , aaaSReq_session    = session
-                  , aaaSReq_permission = permission
-                  , aaaSReq_sessions   = sessions
-                  , aaaSReq_accounts   = accounts } = do
+bumpTokenFinally :: Req -> (() -> a) -> IOE Error (Resp a)
+bumpTokenFinally r@Req { aaaSReq_account    = account
+                       , aaaSReq_auth       = Right token
+                       , aaaSReq_session    = session
+                       , aaaSReq_permission = permission
+                       , aaaSReq_sessions   = sessions
+                       , aaaSReq_accounts   = accounts } g = do
   tau       <- getPOSIXTime
   noise     <- randBytes 32
   let tok    = (C.hash . BS.append noise) (getToken $ aaaSess_token s0)
   let s1     = mkSession (Token tok) tau
-  return $ Right $ response s1
+  return $ Right $ response s1 tau $ g ()
   where
     mkSession t q = Session { aaaSess_name            = session
                             , aaaSess_permission      = permission
@@ -136,36 +156,38 @@ bumpTokenDo r@Req { aaaSReq_account    = account
                             , aaaSess_token           = t }
     s0 = fromJust $ M.lookup (account, session, permission) sessions
     sessions1 s = M.update (const $ Just s) (account, session, permission) sessions
-    response s = Resp { aaaSResp_lastSeen = Just $ aaaSess_time s0
-                      , aaaSResp_session  = s
-                      , aaaSResp_sessions = sessions1 s }
+    response s t x = Resp { aaaSResp_lastSeen = Just $ aaaSess_time s0
+                          , aaaSResp_time     = t
+                          , aaaSResp_session  = s
+                          , aaaSResp_sessions = sessions1 s
+                          , aaaSResp_value    = x }
 
-initializeSession :: PC -> Req -> IOE Error Resp
+initializeSession :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
 initializeSession f r@Req { aaaSReq_account    = account
                           , aaaSReq_auth       = Left secret
                           , aaaSReq_session    = session
                           , aaaSReq_permission = permission
                           , aaaSReq_sessions   = sessions
-                          , aaaSReq_accounts   = accounts }
+                          , aaaSReq_accounts   = accounts } g
   | sessionExists (account, session, permission) sessions =
       return $ Left $ Error initErr
   | True =
-      initializeSessionDo f r
+      initializeSessionDo f r g
   where
     initErr = ( ESessionExists
               , T.unwords [ "Session for", (tshow account), "at", (tshow session)
                           , "for class of actions", (tshow permission)
                           , "already exists. MITM / replay attempt possible." ] )
 
-initializeSessionDo :: PC -> Req -> IOE Error Resp
+initializeSessionDo :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
 initializeSessionDo f r@Req { aaaSReq_account    = account
                             , aaaSReq_auth       = Left secret
                             , aaaSReq_session    = session
                             , aaaSReq_permission = permission
                             , aaaSReq_sessions   = sessions
-                            , aaaSReq_accounts   = accounts }
+                            , aaaSReq_accounts   = accounts } g
   | f permission account accounts =
-      initializeSessionFinally r
+      initializeSessionFinally r g
   | True =
       return $ Left $ Error permError
   where
@@ -175,18 +197,18 @@ initializeSessionDo f r@Req { aaaSReq_account    = account
                             , "at", (tshow session)
                             , ". Endpoint enumeration attack possible." ] )
 
-initializeSessionFinally :: Req -> IOE Error Resp
+initializeSessionFinally :: Req -> (() -> a) -> IOE Error (Resp a)
 initializeSessionFinally r@Req { aaaSReq_account    = account
                                , aaaSReq_auth       = Left secret
                                , aaaSReq_session    = session
                                , aaaSReq_permission = permission
                                , aaaSReq_sessions   = sessions
-                               , aaaSReq_accounts   = accounts } = do
+                               , aaaSReq_accounts   = accounts } g = do
   tau      <- getPOSIXTime 
   noise    <- randBytes 32
   let tok   = (C.hash . BS.append noise . getSalted) (aaaAct_salted acc)
   let s1    = mkSession (Token tok) tau
-  return $ Right $ response s1
+  return $ Right $ response s1 tau $ g ()
   where
     mkSession t q = Session { aaaSess_name       = session
                             , aaaSess_permission = permission
@@ -195,9 +217,11 @@ initializeSessionFinally r@Req { aaaSReq_account    = account
                             , aaaSess_token      = t }
     sessions1 s = M.update (const $ Just s) (account, session, permission) sessions
     acc = fromJust $ M.lookup account accounts
-    response s = Resp { aaaSResp_lastSeen = Nothing
-                      , aaaSResp_session  = s
-                      , aaaSResp_sessions = sessions1 s }
+    response s t x = Resp { aaaSResp_lastSeen = Nothing
+                          , aaaSResp_time     = t
+                          , aaaSResp_session  = s
+                          , aaaSResp_sessions = sessions1 s
+                          , aaaSResp_value    = x }
 
 tshow :: (Show a) => a -> T.Text
 tshow = (T.pack . show)
