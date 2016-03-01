@@ -1,3 +1,4 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -- | Types we use in AAA.
 -- We're keeping it simple and very-very compact.
 module AAA.Types ( Accounts    (..)
@@ -23,6 +24,7 @@ module AAA.Types ( Accounts    (..)
 
 import           Data.ByteString ( ByteString() )
 import           Data.Time.Clock.POSIX ( POSIXTime() )
+import           Data.String
 
 import qualified Data.Map      as M
 import qualified Data.Text     as T
@@ -38,22 +40,22 @@ newtype Salt   = Salt { getSalt :: ByteString }
 
 -- | Phantom type to enforce that ID of a certain type can't be used
 -- to index another type.
-newtype Id a   = Id { getId :: T.Text } deriving ( Eq
+newtype Id a   = Id { getId :: T.Text } deriving ( Eq, IsString
                                                  , Read
                                                  , Show
                                                  , Ord )
 
 -- | Type which captures secrets. We should never store a secret, instead
 -- we should store Salted version of the Secret.
-newtype Secret = Secret { getSecret :: T.Text } deriving (Eq, Read, Show)
+newtype Secret = Secret { getSecret :: T.Text } deriving (Eq, IsString, Read, Show)
 
 -- | Type which captures tokens. Once session for some class of actions is
 -- established, every request shall use last received Token and every response
 -- shall provide the new Token to be used for this session.
-newtype Token  = Token { getToken :: Hash }   deriving (Eq, Read, Show)
+newtype Token  = Token { getToken :: Hash }   deriving (Eq, IsString, Read, Show, Ord)
 
 -- | Type which captures the concept of a hash being salted.
-newtype Salted = Salted { getSalted :: Hash }   deriving (Eq, Read, Show)
+newtype Salted = Salted { getSalted :: Hash }   deriving (Eq, IsString, Read, Show, Ord)
 
 -- | Record type for accounting. It stores information about how
 -- to authenticate this account and which classes of actions does
