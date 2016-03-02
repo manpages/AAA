@@ -3,7 +3,9 @@
 -- | Functions to update session table and token chains.
 module AAA.Session ( tick
                    , invalidate
+                   , logout
                    , sessionExists
+                   , terminate
 
                    , Auth(..)
                    , Req(..)
@@ -53,6 +55,43 @@ invalidate delta sessions = do
   return $ M.filter (f tau) sessions
   where
     f t session = (t - (aaaSess_time session)) < delta 
+
+-- | Terminate session with the given key
+terminate :: (Id Account, Id Session, Id Permission) -> Sessions -> Sessions
+terminate = M.delete
+
+-- | Authenticated logout function, terminates all sessions that match pair
+-- `(Id Account, Id Session)`.
+logout :: Req -> IOE Error (Resp ())
+logout r@Req { aaaSReq_account     = account
+             , aaaSReq_session     = session
+             , aaaSReq_auth        = Right token
+             , aaaSReq_sessions    = sessions
+             , aaaSReq_accounts    = accounts }
+  | token == aaaSess_token theSession = do
+      tau <- getPOSIXTime
+      return $ Right $ logoutDo tau
+  | True =
+      return $ Left $ Error (ETokenMismatch, "Token mismatch.")
+  where
+    theSession = snd $ fromJust $ M.lookupGE (account, session, Id "") sessions
+    sessions1 = M.filterWithKey g sessions
+    g (a, s, _) _
+      | a == account && s == session = False
+      | True                         = True
+    logoutDo t = Resp { aaaSResp_lastSeen   = Just $ aaaSess_time theSession
+                      , aaaSResp_time       = t
+                      , aaaSResp_session    = theSession
+                      , aaaSResp_sessions   = sessions1
+                      , aaaSResp_value      = () }
+logout _ = return $ Left $ Error (EPermissionDenied, "Logging out as the first action of a session doesn't make sense.")
+
+{--
+-- | Login function. Takes `(Id Account, Id Session)` and returns a `Resp` per
+-- Id Permission, starting the sessions.
+login :: Salt -> PC -> Req -> IOE Error M.Map (Id Permission) Resp
+-- TODO: move @gromak's login function here
+--}
 
 -- | Along every request to perform action of class `Id Permission`, either
 -- Left Secret (if the session is about to get initialized), or Right Token
@@ -222,6 +261,8 @@ initializeSessionFinally r@Req { aaaSReq_account    = account
                           , aaaSResp_session  = s
                           , aaaSResp_sessions = sessions1 s
                           , aaaSResp_value    = x }
+
+
 
 tshow :: (Show a) => a -> T.Text
 tshow = (T.pack . show)

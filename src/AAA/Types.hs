@@ -40,7 +40,8 @@ newtype Salt   = Salt { getSalt :: ByteString }
 
 -- | Phantom type to enforce that ID of a certain type can't be used
 -- to index another type.
-newtype Id a   = Id { getId :: T.Text } deriving ( Eq, IsString
+newtype Id a   = Id { getId :: T.Text } deriving ( Eq
+                                                 , IsString
                                                  , Read
                                                  , Show
                                                  , Ord )
