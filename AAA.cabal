@@ -17,8 +17,9 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     AAA.Types
-                      ,AAA.Crypto
                       ,AAA.Account
+                      ,AAA.Crypto
+                      ,AAA.Permission
                       ,AAA.Session
   -- other-modules:       
   -- other-extensions:    
