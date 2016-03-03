@@ -48,12 +48,12 @@ newtype Id a   = Id { getId :: T.Text } deriving ( Eq
 
 -- | Type which captures secrets. We should never store a secret, instead
 -- we should store Salted version of the Secret.
-newtype Secret = Secret { getSecret :: T.Text } deriving (Eq, IsString, Read, Show)
+newtype Secret = Secret { getSecret :: T.Text } deriving (Eq, Ord, IsString, Read, Show)
 
 -- | Type which captures tokens. Once session for some class of actions is
 -- established, every request shall use last received Token and every response
 -- shall provide the new Token to be used for this session.
-newtype Token  = Token { getToken :: Hash }   deriving (Eq, IsString, Read, Show, Ord)
+newtype Token  = Token { getToken :: Hash }   deriving (Eq, Ord, IsString, Read, Show)
 
 -- | Type which captures the concept of a hash being salted.
 newtype Salted = Salted { getSalted :: Hash }   deriving (Eq, IsString, Read, Show, Ord)
@@ -64,7 +64,7 @@ newtype Salted = Salted { getSalted :: Hash }   deriving (Eq, IsString, Read, Sh
 data Account = Account { aaaAct_name        :: Id Account
                        , aaaAct_salted      :: Salted
                        , aaaAct_permissions :: Permissions }
-  deriving (Eq, Read, Show)
+  deriving (Eq, Ord, Read, Show)
  
 -- | Id Account → Account mapping.
 type Accounts = M.Map (Id Account) Account
@@ -73,7 +73,7 @@ type Accounts = M.Map (Id Account) Account
 -- a single permission.
 data Permission = Permission { aaaPerm_name   :: Id Permission
                              , aaaPerm_value  :: Variadic }
-  deriving (Eq, Read, Show)
+  deriving (Eq, Ord, Read, Show)
 
 -- | Id Permission →  Permission mapping.
 type Permissions = M.Map (Id Permission) Permission
@@ -105,6 +105,7 @@ data Session = Session { aaaSess_name       :: Id Session
                        , aaaSess_account    :: Id Account
                        , aaaSess_token      :: Token
                        , aaaSess_time       :: POSIXTime }
+  deriving (Eq, Ord, Show)
 
 -- | Id Session → Session mapping.
 type Sessions = M.Map (Id Account, Id Session, Id Permission) Session

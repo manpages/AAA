@@ -35,6 +35,7 @@ data Req = Req { aaaSReq_account     :: Id Account
                , aaaSReq_permission  :: Id Permission
                , aaaSReq_accounts    :: Accounts
                , aaaSReq_sessions    :: Sessions }
+  deriving (Eq, Ord, Show)
 
 data Resp a = Resp { aaaSResp_lastSeen :: Maybe POSIXTime
                    , aaaSResp_time     :: POSIXTime
@@ -254,7 +255,7 @@ initializeSessionFinally r@Req { aaaSReq_account    = account
                             , aaaSess_account    = account
                             , aaaSess_time       = q
                             , aaaSess_token      = t }
-    sessions1 s = M.update (const $ Just s) (account, session, permission) sessions
+    sessions1 s = M.insert (account, session, permission) s sessions
     acc = fromJust $ M.lookup account accounts
     response s t x = Resp { aaaSResp_lastSeen = Nothing
                           , aaaSResp_time     = t
