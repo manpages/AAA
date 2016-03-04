@@ -37,6 +37,7 @@ type Hash      = ByteString
 -- | Salt is just a ByteString. We wrap it in newtype to reduce the
 -- probability of mistakenly shoving a random thing 
 newtype Salt   = Salt { getSalt :: ByteString }
+  deriving (Eq, IsString, Read, Show, Ord)
 
 -- | Phantom type to enforce that ID of a certain type can't be used
 -- to index another type.
