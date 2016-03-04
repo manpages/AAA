@@ -12,8 +12,8 @@ module AAA.Session ( tick
                    , Resp(..) ) where
 
 import AAA.Types
-import AAA.Account
 
+import qualified AAA.Account as A
 import qualified AAA.Crypto as C
 
 import qualified Data.ByteString as BS
@@ -115,153 +115,105 @@ login :: Salt -> PC -> Req -> IOE Error M.Map (Id Permission) Resp
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
 -- this library using a `Left Error` value (wrapped in IO in this particular case).
 tick :: Salt -> PC -> Req -> (() -> a) -> IOE Error (Resp a)
-tick z f r@Req { aaaSReq_account    = account
-               , aaaSReq_auth       = Left secret
-               , aaaSReq_session    = session
-               , aaaSReq_permission = permission
-               , aaaSReq_sessions   = sessions
-               , aaaSReq_accounts   = accounts } g
-  | secretMatches z secret account accounts = initializeSession f r g
-  | True                                    = return $ Left $ Error ( EIncorrectPassword
-                                                                    , "Incorrect password")
-tick _ f r@Req { aaaSReq_account    = account
-               , aaaSReq_auth       = Right token
-               , aaaSReq_session    = session
-               , aaaSReq_permission = permission
-               , aaaSReq_sessions   = sessions
-               , aaaSReq_accounts   = accounts } g
-  | sessionExists (account, session, permission) sessions =
-      bumpToken f r g
-  | True = 
-      return $ Left $ Error ( ESessionNotFound
-                            , T.unwords [ "User", (tshow account)
-                                        , "attempted to keep a non-existing"
-                                        , (tshow permission), "session alive at"
-                                        , (tshow session) ] )
+tick z e r@Req { aaaSReq_account    = account
+                , aaaSReq_auth       = Left auth
+                , aaaSReq_session    = session
+                , aaaSReq_permission = permission
+                , aaaSReq_sessions   = sessions
+                , aaaSReq_accounts   = accounts } g =
+  tick'Do r g ((not . sex) r) (secretMatches z r) (pc e r) (initToken r) Nothing
 
+tick z e r@Req { aaaSReq_account    = account
+                , aaaSReq_auth       = Right auth
+                , aaaSReq_session    = session
+                , aaaSReq_permission = permission
+                , aaaSReq_sessions   = sessions
+                , aaaSReq_accounts   = accounts } g =
+  tick'Do r g (sex r) (tokenMatches r) (pc e r) (contToken r) (justSessTime r)
 
-bumpToken :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
-bumpToken f r@Req { aaaSReq_account    = account
-                  , aaaSReq_auth       = Right token
-                  , aaaSReq_session    = session
-                  , aaaSReq_permission = permission
-                  , aaaSReq_sessions   = sessions
-                  , aaaSReq_accounts   = accounts } g
-  | token == aaaSess_token theSession =
-      bumpTokenDo f r g
-  | True =
-      return $ Left $ Error ( ETokenMismatch, T.unwords [ "User", (tshow account)
-                                                        , "supplied an incorrect token"
-                                                        , "for action class", (tshow permission)
-                                                        , "at", (tshow session) ] )
+tick'Do r _ False _ _ _ _ =
+  return $ Left $ Error (ESessionExistenceMismatch, tshow r)
+tick'Do r _ _ False _ _ _ =
+  return $ Left $ Error (EAuth, tshow r)
+tick'Do r _ _ _ False _ _ =
+  return $ Left $ Error (EPermissionDenied, tshow r)
+tick'Do r g True True True token1 tau0 = do
+  tau <- getPOSIXTime
+  t1  <- token1
+  let session1 = mkSession t1 tau r
+  return $ Right $ Resp { aaaSResp_lastSeen = tau0
+                        , aaaSResp_time     = tau
+                        , aaaSResp_session  = session1
+                        , aaaSResp_sessions = mkSessions session1 r
+                        , aaaSResp_value    = g () }
+
+mkSessions :: Session -> Req -> Sessions
+mkSessions s@Session { aaaSess_name       = sid
+                     , aaaSess_account    = aid
+                     , aaaSess_permission = pid } Req { aaaSReq_sessions = sessions } =
+  f (M.member (aid, sid, pid) sessions) (aid, sid, pid) s sessions
   where
-    theSession = fromJust $ M.lookup (account, session, permission) sessions
+    f True  k x y = M.update (const $ Just x) k y
+    f False k x y = M.insert k x y
 
-bumpTokenDo :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
-bumpTokenDo f r@Req { aaaSReq_account    = account
-                    , aaaSReq_auth       = Right token
-                    , aaaSReq_session    = session
-                    , aaaSReq_permission = permission
-                    , aaaSReq_sessions   = sessions
-                    , aaaSReq_accounts   = accounts } g
-  | f permission account accounts =
-      bumpTokenFinally r g
-  | True =
-      return $ Left $ Error bumpPermErr
-  where
-    bumpPermErr = ( EPermissionDenied
-                  , T.unwords [ "Permission denied for", (tshow account)
-                              , "while bumping token in session", (tshow session)
-                              , "for action class", (tshow permission)
-                              , "Possibly, administrator changed the permissions"
-                              , "in the middle of a session." ] )
+mkSession :: Token -> POSIXTime -> Req -> Session
+mkSession tok tau Req { aaaSReq_account     = account
+                      , aaaSReq_session     = session
+                      , aaaSReq_permission  = permission } =
+  Session { aaaSess_name        = session
+          , aaaSess_account     = account
+          , aaaSess_permission  = permission
+          , aaaSess_time        = tau
+          , aaaSess_token       = tok }
 
-bumpTokenFinally :: Req -> (() -> a) -> IOE Error (Resp a)
-bumpTokenFinally r@Req { aaaSReq_account    = account
-                       , aaaSReq_auth       = Right token
-                       , aaaSReq_session    = session
-                       , aaaSReq_permission = permission
-                       , aaaSReq_sessions   = sessions
-                       , aaaSReq_accounts   = accounts } g = do
-  tau       <- getPOSIXTime
-  noise     <- randBytes 32
-  let tok    = (C.hash . BS.append noise) (getToken $ aaaSess_token s0)
-  let s1     = mkSession (Token tok) tau
-  return $ Right $ response s1 tau $ g ()
-  where
-    mkSession t q = Session { aaaSess_name            = session
-                            , aaaSess_permission      = permission
-                            , aaaSess_account         = account
-                            , aaaSess_time            = q
-                            , aaaSess_token           = t }
-    s0 = fromJust $ M.lookup (account, session, permission) sessions
-    sessions1 s = M.update (const $ Just s) (account, session, permission) sessions
-    response s t x = Resp { aaaSResp_lastSeen = Just $ aaaSess_time s0
-                          , aaaSResp_time     = t
-                          , aaaSResp_session  = s
-                          , aaaSResp_sessions = sessions1 s
-                          , aaaSResp_value    = x }
+sex :: Req -> Bool
+sex Req { aaaSReq_account     = a
+        , aaaSReq_session     = s
+        , aaaSReq_permission  = p
+        , aaaSReq_sessions    = ss } =
+  M.member (a, s, p) ss
 
-initializeSession :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
-initializeSession f r@Req { aaaSReq_account    = account
-                          , aaaSReq_auth       = Left secret
-                          , aaaSReq_session    = session
-                          , aaaSReq_permission = permission
-                          , aaaSReq_sessions   = sessions
-                          , aaaSReq_accounts   = accounts } g
-  | sessionExists (account, session, permission) sessions =
-      return $ Left $ Error initErr
-  | True =
-      initializeSessionDo f r g
-  where
-    initErr = ( ESessionExists
-              , T.unwords [ "Session for", (tshow account), "at", (tshow session)
-                          , "for class of actions", (tshow permission)
-                          , "already exists. MITM / replay attempt possible." ] )
+secretMatches :: Salt -> Req -> Bool
+secretMatches z Req { aaaSReq_account   = a
+                    , aaaSReq_accounts  = as
+                    , aaaSReq_auth      = Left s } =
+  A.secretMatches z s a as
 
-initializeSessionDo :: PC -> Req -> (() -> a) -> IOE Error (Resp a)
-initializeSessionDo f r@Req { aaaSReq_account    = account
-                            , aaaSReq_auth       = Left secret
-                            , aaaSReq_session    = session
-                            , aaaSReq_permission = permission
-                            , aaaSReq_sessions   = sessions
-                            , aaaSReq_accounts   = accounts } g
-  | f permission account accounts =
-      initializeSessionFinally r g
-  | True =
-      return $ Left $ Error permError
-  where
-    permError = ( EPermissionDenied
-                , T.unwords [ "Permission denied for", (tshow account)
-                            , "to perform", (tshow permission)
-                            , "at", (tshow session)
-                            , ". Endpoint enumeration attack possible." ] )
+tokenMatches :: Req -> Bool
+tokenMatches r@Req { aaaSReq_auth = Right t } =
+  t == (aaaSess_token $ partialSession r)
 
-initializeSessionFinally :: Req -> (() -> a) -> IOE Error (Resp a)
-initializeSessionFinally r@Req { aaaSReq_account    = account
-                               , aaaSReq_auth       = Left secret
-                               , aaaSReq_session    = session
-                               , aaaSReq_permission = permission
-                               , aaaSReq_sessions   = sessions
-                               , aaaSReq_accounts   = accounts } g = do
-  tau      <- getPOSIXTime 
-  noise    <- randBytes 32
-  let tok   = (C.hash . BS.append noise . getSalted) (aaaAct_salted acc)
-  let s1    = mkSession (Token tok) tau
-  return $ Right $ response s1 tau $ g ()
-  where
-    mkSession t q = Session { aaaSess_name       = session
-                            , aaaSess_permission = permission
-                            , aaaSess_account    = account
-                            , aaaSess_time       = q
-                            , aaaSess_token      = t }
-    sessions1 s = M.insert (account, session, permission) s sessions
-    acc = fromJust $ M.lookup account accounts
-    response s t x = Resp { aaaSResp_lastSeen = Nothing
-                          , aaaSResp_time     = t
-                          , aaaSResp_session  = s
-                          , aaaSResp_sessions = sessions1 s
-                          , aaaSResp_value    = x }
+initToken :: Req -> IO Token
+initToken r = do
+  noise <- randBytes 32
+  return $ Token $ (C.hash . BS.append noise) . (getSalted . aaaAct_salted) $ partialAccount r
+
+contToken :: Req -> IO Token
+contToken r = do
+  noise <- randBytes 32
+  return $ Token $ (C.hash . BS.append noise) . (getToken . aaaSess_token) $ partialSession r
+
+partialSession :: Req -> Session
+partialSession Req { aaaSReq_account     = a
+                   , aaaSReq_session     = s
+                   , aaaSReq_permission  = p
+                   , aaaSReq_sessions    = ss } =
+  fromJust $ M.lookup (a, s, p) ss
+
+partialAccount :: Req -> Account
+partialAccount Req { aaaSReq_account   = a
+                   , aaaSReq_accounts  = as } =
+  fromJust $ M.lookup a as
+
+pc :: PC -> Req -> Bool
+pc e Req { aaaSReq_permission = p
+         , aaaSReq_account    = a
+         , aaaSReq_accounts   = as } =
+  e p a as
+
+justSessTime :: Req -> Maybe POSIXTime
+justSessTime r =
+  Just $ aaaSess_time $ partialSession r
 
 tshow :: (Show a) => a -> T.Text
 tshow = (T.pack . show)
