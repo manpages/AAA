@@ -7,7 +7,7 @@ module AAA.Session ( tick
                    , sessionExists
                    , terminate
 
-                   , Auth(..)
+                   , Auth()
                    , Req(..)
                    , Resp(..) ) where
 
@@ -27,7 +27,6 @@ import           OpenSSL.Random ( randBytes )
 type Auth    = Either Secret Token
 type IOE a b = IO (Either a b)
 type PC      = PermissionChecker
-type M a     = Maybe a
 
 data Req = Req { aaaSReq_account     :: Id Account
                , aaaSReq_auth        :: Auth
@@ -64,11 +63,11 @@ terminate = M.delete
 -- | Authenticated logout function, terminates all sessions that match pair
 -- `(Id Account, Id Session)`.
 logout :: Req -> IOE Error (Resp ())
-logout r@Req { aaaSReq_account     = account
-             , aaaSReq_session     = session
-             , aaaSReq_auth        = Right token
-             , aaaSReq_sessions    = sessions
-             , aaaSReq_accounts    = accounts }
+logout Req { aaaSReq_account     = account
+           , aaaSReq_session     = session
+           , aaaSReq_auth        = Right token
+           , aaaSReq_sessions    = sessions
+           , aaaSReq_accounts    = _ }
   | token == aaaSess_token theSession = do
       tau <- getPOSIXTime
       return $ Right $ logoutDo tau
@@ -115,22 +114,13 @@ login :: Salt -> PC -> Req -> IOE Error M.Map (Id Permission) Resp
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
 -- this library using a `Left Error` value (wrapped in IO in this particular case).
 tick :: Salt -> PC -> Req -> (() -> a) -> IOE Error (Resp a)
-tick z e r@Req { aaaSReq_account    = account
-                , aaaSReq_auth       = Left auth
-                , aaaSReq_session    = session
-                , aaaSReq_permission = permission
-                , aaaSReq_sessions   = sessions
-                , aaaSReq_accounts   = accounts } g =
+tick z e r@Req { aaaSReq_auth = Left _ } g =
   tick'Do r g ((not . sex) r) (secretMatches z r) (pc e r) (initToken r) Nothing
 
-tick z e r@Req { aaaSReq_account    = account
-                , aaaSReq_auth       = Right auth
-                , aaaSReq_session    = session
-                , aaaSReq_permission = permission
-                , aaaSReq_sessions   = sessions
-                , aaaSReq_accounts   = accounts } g =
+tick _ e r g =
   tick'Do r g (sex r) (tokenMatches r) (pc e r) (contToken r) (justSessTime r)
 
+tick'Do :: Req -> (() -> a) -> Bool -> Bool -> Bool -> IO Token -> Maybe POSIXTime -> IOE Error (Resp a)
 tick'Do r _ False _ _ _ _ =
   return $ Left $ Error (ESessionExistenceMismatch, tshow r)
 tick'Do r _ _ False _ _ _ =
@@ -178,10 +168,12 @@ secretMatches z Req { aaaSReq_account   = a
                     , aaaSReq_accounts  = as
                     , aaaSReq_auth      = Left s } =
   A.secretMatches z s a as
+secretMatches _ _ = undefined
 
 tokenMatches :: Req -> Bool
 tokenMatches r@Req { aaaSReq_auth = Right t } =
   t == (aaaSess_token $ partialSession r)
+tokenMatches _ = undefined
 
 initToken :: Req -> IO Token
 initToken r = do
