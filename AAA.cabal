@@ -21,7 +21,6 @@ library
                       ,AAA.Crypto
                       ,AAA.Permission
                       ,AAA.Session
-                      ,AAA.Session2
   -- other-modules:       
   -- other-extensions:    
   build-depends:       base >=4.8 && <4.9
