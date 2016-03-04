@@ -263,7 +263,5 @@ initializeSessionFinally r@Req { aaaSReq_account    = account
                           , aaaSResp_sessions = sessions1 s
                           , aaaSResp_value    = x }
 
-
-
 tshow :: (Show a) => a -> T.Text
 tshow = (T.pack . show)

@@ -121,4 +121,6 @@ data ErrorCode = EAccountAlreadyRegistered
                | ESessionExists
                | ESessionNotFound
                | ETokenMismatch
+               | ESessionExistenceMismatch
+               | EAuth
   deriving (Eq, Read, Show)
