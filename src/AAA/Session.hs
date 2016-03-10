@@ -2,6 +2,8 @@
 
 -- | Functions to update session table and token chains.
 module AAA.Session ( tick
+
+                   , deleteAccount
                    , invalidate
                    , logout
                    , sessionExists
@@ -59,6 +61,16 @@ invalidate delta sessions = do
 -- | Terminate session with the given key
 terminate :: (Id Account, Id Session, Id Permission) -> Sessions -> Sessions
 terminate = M.delete
+
+-- | Unauthenticated account deletion function. Should never be called from
+-- endpoints without prior authentication and authorization.
+deleteAccount :: Id Account -> Accounts -> Sessions -> (Accounts, Sessions)
+deleteAccount a as ss =
+  (M.delete a as, M.filterWithKey g ss)
+  where
+    g (x, _, _) _
+      | a == x = False
+      | True   = True
 
 -- | Authenticated logout function, terminates all sessions that match pair
 -- `(Id Account, Id Session)`.
