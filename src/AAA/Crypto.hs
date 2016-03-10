@@ -3,8 +3,8 @@
 module AAA.Crypto ( hash, salt, saltBinary ) where
 
 import qualified Crypto.Hash.SHA256     as SHA256
-import           Data.Binary            (Binary (), encode)
-import           Data.ByteString        (ByteString (), append)
+import           Data.Binary            (Binary(), encode)
+import           Data.ByteString        (append)
 import qualified Data.ByteString.Base64 as B64
 
 import           AAA.Types

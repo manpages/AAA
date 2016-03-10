@@ -77,3 +77,4 @@ secretMatches z (Secret s) x xs
   where
     y          = M.lookup x xs
     g (Just a) = aaaAct_salted a
+    g Nothing  = undefined

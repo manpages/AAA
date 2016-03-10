@@ -1,15 +1,15 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -- | Types we use in AAA.
 -- We're keeping it simple and very-very compact.
-module AAA.Types ( Accounts    (..)
+module AAA.Types ( Accounts    ()
                  , Account     (..)
-                 , Permissions (..)
+                 , Permissions ()
                  , Permission  (..)
                  , Session     (..)
-                 , Sessions    (..)
+                 , Sessions    ()
                  , Variadic    (..)
 
-                 , Hash        (..)
+                 , Hash        ()
                  , Id          (..)
                  , Secret      (..)
                  , Salted      (..)
@@ -19,7 +19,7 @@ module AAA.Types ( Accounts    (..)
                  , Error       (..)
                  , ErrorCode   (..)
 
-                 , PermissionChecker (..)
+                 , PermissionChecker ()
                  ) where
 
 import           Data.ByteString ( ByteString() )

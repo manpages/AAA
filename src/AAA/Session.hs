@@ -68,14 +68,17 @@ logout Req { aaaSReq_account     = account
            , aaaSReq_auth        = Right token
            , aaaSReq_sessions    = sessions
            , aaaSReq_accounts    = _ }
-  | token == aaaSess_token theSession = do
+  | someTokenMatches = do
       tau <- getPOSIXTime
       return $ Right $ logoutDo tau
   | True =
       return $ Left $ Error (ETokenMismatch, "Token mismatch.")
   where
-    theSession = snd $ fromJust $ M.lookupGE (account, session, Id "") sessions
+    someTokenMatches = M.fold f False sessions
+    f _ True  = True
+    f x False = token == aaaSess_token x
     sessions1 = M.filterWithKey g sessions
+    theSession = snd $ fromJust $ M.lookupGE (account, session, Id "") sessions
     g (a, s, _) _
       | a == account && s == session = False
       | True                         = True
