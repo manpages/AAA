@@ -196,10 +196,16 @@ initToken r = do
   noise <- liftIO $ randBytes 32
   return $ Token $ (C.hash . BS.append noise) . (getSalted . aaaAct_salted) $ partialAccount r
 
+{--
+-- Temporarily remove PFS tokens because of race condiditions
 contToken :: MonadIO m => Req -> m Token
 contToken r = do
   noise <- liftIO $ randBytes 32
   return $ Token $ (C.hash . BS.append noise) . (getToken . aaaSess_token) $ partialSession r
+--}
+
+contToken :: MonadIO m => Req -> m Token
+contToken r = (return . aaaSess_token . partialSession) r
 
 partialSession :: Req -> Session
 partialSession Req { aaaSReq_account     = a
