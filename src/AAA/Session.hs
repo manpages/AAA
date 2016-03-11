@@ -18,6 +18,7 @@ import AAA.Types
 import qualified AAA.Account as A
 import qualified AAA.Crypto as C
 
+import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Data.ByteString as BS
 import           Data.Maybe (isJust, fromJust)
 import qualified Data.Map as M
@@ -128,14 +129,14 @@ login :: Salt -> PC -> Req -> IOE Error M.Map (Id Permission) Resp
 --
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
 -- this library using a `Left Error` value (wrapped in IO in this particular case).
-tick :: Salt -> PC -> Req -> (() -> a) -> IOE Error (Resp a)
+tick :: MonadIO m => Salt -> PC -> Req -> (() -> m a) -> m (Either Error (Resp (m a)))
 tick z e r@Req { aaaSReq_auth = Left _ } g =
   tick'Do r g ((not . sex) r) (secretMatches z r) (pc e r) (initToken r) Nothing
 
 tick _ e r g =
   tick'Do r g (sex r) (tokenMatches r) (pc e r) (contToken r) (justSessTime r)
 
-tick'Do :: Req -> (() -> a) -> Bool -> Bool -> Bool -> IO Token -> Maybe POSIXTime -> IOE Error (Resp a)
+tick'Do :: MonadIO m => Req -> (() -> m a) -> Bool -> Bool -> Bool -> m Token -> Maybe POSIXTime -> m (Either Error (Resp (m a)))
 tick'Do r _ False _ _ _ _ =
   return $ Left $ Error (ESessionExistenceMismatch, tshow r)
 tick'Do r _ _ False _ _ _ =
@@ -143,7 +144,7 @@ tick'Do r _ _ False _ _ _ =
 tick'Do r _ _ _ False _ _ =
   return $ Left $ Error (EPermissionDenied, tshow r)
 tick'Do r g True True True token1 tau0 = do
-  tau <- getPOSIXTime
+  tau <- liftIO getPOSIXTime
   t1  <- token1
   let session1 = mkSession t1 tau r
   return $ Right $ Resp { aaaSResp_lastSeen = tau0
@@ -190,14 +191,14 @@ tokenMatches r@Req { aaaSReq_auth = Right t } =
   t == (aaaSess_token $ partialSession r)
 tokenMatches _ = undefined
 
-initToken :: Req -> IO Token
+initToken :: MonadIO m => Req -> m Token
 initToken r = do
-  noise <- randBytes 32
+  noise <- liftIO $ randBytes 32
   return $ Token $ (C.hash . BS.append noise) . (getSalted . aaaAct_salted) $ partialAccount r
 
-contToken :: Req -> IO Token
+contToken :: MonadIO m => Req -> m Token
 contToken r = do
-  noise <- randBytes 32
+  noise <- liftIO $ randBytes 32
   return $ Token $ (C.hash . BS.append noise) . (getToken . aaaSess_token) $ partialSession r
 
 partialSession :: Req -> Session
