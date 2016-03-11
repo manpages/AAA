@@ -133,8 +133,8 @@ tick :: MonadIO m => Salt -> PC -> Req -> m a -> m (Either Error (Resp a))
 tick z e r@Req { aaaSReq_auth = Left _ } g =
   tick'Do r g ((not . sex) r) (secretMatches z r) (pc e r) (initToken r) Nothing
 
-tick _ e r g =
-  tick'Do r g (sex r) (tokenMatches r) (pc e r) (contToken r) (justSessTime r)
+tick z e r g =
+  tick'Do r g (sex r) (secretMatches z r) (pc e r) (contToken r) (justSessTime r)
 
 tick'Do :: MonadIO m => Req -> m a -> Bool -> Bool -> Bool -> m Token -> Maybe POSIXTime -> m (Either Error (Resp a))
 tick'Do r _ False _ _ _ _ =
