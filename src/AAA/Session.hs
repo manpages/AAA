@@ -13,7 +13,7 @@ module AAA.Session ( tick
                    , Req(..)
                    , Resp(..) ) where
 
-import AAA.Types
+import           AAA.Types
 
 import qualified AAA.Account as A
 import qualified AAA.Crypto as C
@@ -31,12 +31,12 @@ type Auth    = Either Secret Token
 type IOE a b = IO (Either a b)
 type PC      = PermissionChecker
 
-data Req = Req { aaaSReq_account     :: Id Account
-               , aaaSReq_auth        :: Auth
-               , aaaSReq_session     :: Id Session
-               , aaaSReq_permission  :: Id Permission
-               , aaaSReq_accounts    :: Accounts
-               , aaaSReq_sessions    :: Sessions }
+data Req = Req { aaaSReq_account    :: Id Account
+               , aaaSReq_auth       :: Auth
+               , aaaSReq_session    :: Id Session
+               , aaaSReq_permission :: Id Permission
+               , aaaSReq_accounts   :: Accounts
+               , aaaSReq_sessions   :: Sessions }
   deriving (Eq, Ord, Show)
 
 data Resp a = Resp { aaaSResp_lastSeen :: Maybe POSIXTime
@@ -57,7 +57,7 @@ invalidate delta sessions = do
   tau <- getPOSIXTime
   return $ M.filter (f tau) sessions
   where
-    f t session = (t - (aaaSess_time session)) < delta 
+    f t session = (t - (aaaSess_time session)) < delta
 
 -- | Terminate session with the given key
 terminate :: (Id Account, Id Session, Id Permission) -> Sessions -> Sessions
@@ -129,14 +129,14 @@ login :: Salt -> PC -> Req -> IOE Error M.Map (Id Permission) Resp
 --
 -- Response is wrapped in IO Either and error is reported, like everywhere else in
 -- this library using a `Left Error` value (wrapped in IO in this particular case).
-tick :: MonadIO m => Salt -> PC -> Req -> (() -> m a) -> m (Either Error (Resp (m a)))
+tick :: MonadIO m => Salt -> PC -> Req -> m a -> m (Either Error (Resp a))
 tick z e r@Req { aaaSReq_auth = Left _ } g =
   tick'Do r g ((not . sex) r) (secretMatches z r) (pc e r) (initToken r) Nothing
 
 tick _ e r g =
   tick'Do r g (sex r) (tokenMatches r) (pc e r) (contToken r) (justSessTime r)
 
-tick'Do :: MonadIO m => Req -> (() -> m a) -> Bool -> Bool -> Bool -> m Token -> Maybe POSIXTime -> m (Either Error (Resp (m a)))
+tick'Do :: MonadIO m => Req -> m a -> Bool -> Bool -> Bool -> m Token -> Maybe POSIXTime -> m (Either Error (Resp a))
 tick'Do r _ False _ _ _ _ =
   return $ Left $ Error (ESessionExistenceMismatch, tshow r)
 tick'Do r _ _ False _ _ _ =
@@ -146,12 +146,13 @@ tick'Do r _ _ _ False _ _ =
 tick'Do r g True True True token1 tau0 = do
   tau <- liftIO getPOSIXTime
   t1  <- token1
+  v <- g
   let session1 = mkSession t1 tau r
   return $ Right $ Resp { aaaSResp_lastSeen = tau0
                         , aaaSResp_time     = tau
                         , aaaSResp_session  = session1
                         , aaaSResp_sessions = mkSessions session1 r
-                        , aaaSResp_value    = g () }
+                        , aaaSResp_value    = v }
 
 mkSessions :: Session -> Req -> Sessions
 mkSessions s@Session { aaaSess_name       = sid
