@@ -189,6 +189,9 @@ secretMatches z Req { aaaSReq_account   = a
   A.secretMatches z s a as
 secretMatches _ _ = undefined
 
+{-- This function will produce an "unused" warning, that is nice, because we don't really want
+    to use the code from this branch, assuming that it is reasonably secure, so let's remember
+    that by seing this warning and Werr builds failing, so that we can't ship it like this :) --}
 tokenMatches :: Req -> Bool
 tokenMatches r@Req { aaaSReq_auth = Right t } =
   t == (aaaSess_token $ partialSession r)
