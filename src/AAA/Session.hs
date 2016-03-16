@@ -55,10 +55,12 @@ sessionExists k kvs = isJust $ M.lookup k kvs
 invalidate :: POSIXTime -> Sessions -> IO Sessions
 invalidate delta sessions = do
   tau <- getPOSIXTime
-  return $ M.filter (f tau) sessions
+  let fresh = ((M.foldlWithKey g M.empty) . (M.filter $ f tau)) sessions
+  return $ M.filterWithKey (h fresh) sessions
   where
-    f t session = (t - (aaaSess_time session)) < delta
-
+    f t session = (t - (aaaSess_time session)) < delta 
+    g acc (a, s, _) _ = M.insert (a, s) True acc
+    h pairs (a, s, _) _ = M.member (a, s) pairs  
 -- | Terminate session with the given key
 terminate :: (Id Account, Id Session, Id Permission) -> Sessions -> Sessions
 terminate = M.delete
